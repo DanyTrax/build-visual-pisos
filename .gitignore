@@ -1,0 +1,13 @@
+.env
+*.md
+__pycache__/
+*.pyc
+.DS_Store
+
+data/sessions/*
+!data/sessions/.gitkeep
+
+data/textures/*
+!data/textures/.gitkeep
+!data/textures/*.svg
+

@@ -1,0 +1,192 @@
+const auth = {
+  token: sessionStorage.getItem("adminToken") || "",
+  user: null,
+};
+
+const ui = {
+  loginForm: document.getElementById("loginForm"),
+  dashboard: document.getElementById("dashboard"),
+  loginBox: document.getElementById("loginBox"),
+  loginEmail: document.getElementById("loginEmail"),
+  loginPassword: document.getElementById("loginPassword"),
+  loginStatus: document.getElementById("loginStatus"),
+  meText: document.getElementById("meText"),
+  texturesList: document.getElementById("texturesList"),
+  usersList: document.getElementById("usersList"),
+  textureForm: document.getElementById("textureForm"),
+  userForm: document.getElementById("userForm"),
+  aiForm: document.getElementById("aiForm"),
+  aiTestForm: document.getElementById("aiTestForm"),
+  aiPreview: document.getElementById("aiPreview"),
+  globalStatus: document.getElementById("globalStatus"),
+};
+
+async function api(path, options = {}) {
+  const headers = options.headers || {};
+  if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
+  const res = await fetch(path, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Error de API");
+  return data;
+}
+
+function showDashboard() {
+  ui.loginBox.classList.add("hidden");
+  ui.dashboard.classList.remove("hidden");
+}
+
+function showLogin() {
+  ui.loginBox.classList.remove("hidden");
+  ui.dashboard.classList.add("hidden");
+}
+
+async function loadMe() {
+  const data = await api("/api/admin/me");
+  auth.user = data.user;
+  ui.meText.textContent = `${data.user.email} (${data.user.role})`;
+}
+
+async function loadTextures() {
+  const data = await api("/api/admin/textures");
+  const textures = data.textures || [];
+  ui.texturesList.innerHTML = textures
+    .map((t) => `<li class="border rounded p-2">${t.name} - ${t.category} - ${t.active ? "activo" : "inactivo"}</li>`)
+    .join("");
+}
+
+async function loadUsers() {
+  if (auth.user?.role !== "admin") {
+    ui.usersList.innerHTML = `<li class="text-slate-500">Solo admin puede gestionar usuarios.</li>`;
+    return;
+  }
+  const data = await api("/api/admin/users");
+  ui.usersList.innerHTML = data.users
+    .map((u) => `<li class="border rounded p-2">${u.email} - ${u.role} - ${u.active ? "activo" : "inactivo"}</li>`)
+    .join("");
+}
+
+async function loadAiConfig() {
+  if (auth.user?.role !== "admin") return;
+  const cfg = await api("/api/admin/ai-config");
+  for (const key of [
+    "replicate_model",
+    "floor_text_prompt",
+    "negative_mask_prompt",
+    "detection_threshold",
+    "box_threshold",
+    "max_image_width",
+    "mask_feather_px",
+    "blend_strength",
+  ]) {
+    const el = document.getElementById(`ai_${key}`);
+    if (el) el.value = cfg[key];
+  }
+  document.getElementById("ai_enable_fallback_heuristic").checked = !!cfg.enable_fallback_heuristic;
+}
+
+ui.loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const data = await api("/api/admin/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: ui.loginEmail.value, password: ui.loginPassword.value }),
+    });
+    auth.token = data.access_token;
+    sessionStorage.setItem("adminToken", auth.token);
+    showDashboard();
+    await loadMe();
+    await Promise.all([loadTextures(), loadUsers(), loadAiConfig()]);
+  } catch (err) {
+    ui.loginStatus.textContent = err.message;
+  }
+});
+
+ui.textureForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const fd = new FormData(ui.textureForm);
+    await api("/api/admin/textures", { method: "POST", body: fd });
+    ui.textureForm.reset();
+    await loadTextures();
+    ui.globalStatus.textContent = "Textura subida correctamente.";
+  } catch (err) {
+    ui.globalStatus.textContent = err.message;
+  }
+});
+
+ui.userForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await api("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: document.getElementById("user_email").value,
+        password: document.getElementById("user_password").value,
+        role: document.getElementById("user_role").value,
+        active: true,
+      }),
+    });
+    ui.userForm.reset();
+    await loadUsers();
+    ui.globalStatus.textContent = "Usuario creado.";
+  } catch (err) {
+    ui.globalStatus.textContent = err.message;
+  }
+});
+
+ui.aiForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const payload = {
+      replicate_model: document.getElementById("ai_replicate_model").value,
+      floor_text_prompt: document.getElementById("ai_floor_text_prompt").value,
+      negative_mask_prompt: document.getElementById("ai_negative_mask_prompt").value,
+      detection_threshold: Number(document.getElementById("ai_detection_threshold").value),
+      box_threshold: Number(document.getElementById("ai_box_threshold").value),
+      max_image_width: Number(document.getElementById("ai_max_image_width").value),
+      enable_fallback_heuristic: document.getElementById("ai_enable_fallback_heuristic").checked,
+      mask_feather_px: Number(document.getElementById("ai_mask_feather_px").value),
+      blend_strength: Number(document.getElementById("ai_blend_strength").value),
+    };
+    await api("/api/admin/ai-config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    ui.globalStatus.textContent = "Configuracion IA guardada.";
+  } catch (err) {
+    ui.globalStatus.textContent = err.message;
+  }
+});
+
+ui.aiTestForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const fd = new FormData(ui.aiTestForm);
+    const data = await api("/api/admin/ai-config/test", { method: "POST", body: fd });
+    ui.aiPreview.src = `data:image/jpeg;base64,${data.preview_base64}`;
+    ui.globalStatus.textContent = data.message || "Prueba completada.";
+  } catch (err) {
+    ui.globalStatus.textContent = err.message;
+  }
+});
+
+async function init() {
+  if (!auth.token) {
+    showLogin();
+    return;
+  }
+  try {
+    showDashboard();
+    await loadMe();
+    await Promise.all([loadTextures(), loadUsers(), loadAiConfig()]);
+  } catch {
+    sessionStorage.removeItem("adminToken");
+    auth.token = "";
+    showLogin();
+  }
+}
+
+init();

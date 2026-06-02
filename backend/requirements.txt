@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+replicate
+opencv-python-headless
+numpy
+pillow
+python-dotenv
+httpx
+pydantic
+PyJWT
+passlib[bcrypt]
+requests

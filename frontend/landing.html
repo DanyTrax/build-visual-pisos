@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Landing - Floor Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <main class="mx-auto max-w-4xl p-6 md:p-10">
+      <h1 class="text-2xl font-bold">Landing e Instructivo de Integracion IA</h1>
+      <p class="mt-2 text-slate-600">Guia rapida para activar IA y embebido en tu sitio.</p>
+
+      <section class="mt-6 rounded-xl bg-white p-5 shadow">
+        <h2 class="text-lg font-semibold">1) Conectar IA (Replicate)</h2>
+        <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm">
+          <li>Copia <code>.env.example</code> a <code>.env</code>.</li>
+          <li>Completa <code>REPLICATE_API_TOKEN</code>.</li>
+          <li>Verifica <code>REPLICATE_MODEL</code> (Grounded SAM).</li>
+          <li>Reinicia el backend.</li>
+          <li>Prueba deteccion en <code>/admin/</code> -> Configuracion IA.</li>
+        </ol>
+      </section>
+
+      <section class="mt-4 rounded-xl bg-white p-5 shadow">
+        <h2 class="text-lg font-semibold">2) Integrar visualizer en CMS/landing</h2>
+        <p class="mt-2 text-sm">Ejemplo iframe:</p>
+<pre class="mt-2 overflow-x-auto rounded bg-slate-900 p-3 text-xs text-slate-100">&lt;iframe
+  src="https://tu-dominio.com/"
+  width="100%"
+  height="700"
+  style="border:0;border-radius:12px;"
+  loading="lazy"
+&gt;&lt;/iframe&gt;</pre>
+      </section>
+
+      <section class="mt-4 rounded-xl bg-white p-5 shadow">
+        <h2 class="text-lg font-semibold">3) Recomendaciones mobile</h2>
+        <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
+          <li>Tomar foto con buena luz y buen area de piso visible.</li>
+          <li>Evitar fotos inclinadas extremas o con piso oculto por muebles.</li>
+          <li>Preferir conexion estable (4G/5G/WiFi) para mejor tiempo de analisis.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

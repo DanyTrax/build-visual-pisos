@@ -1,0 +1,28 @@
+{
+  "textures": [
+    {
+      "id": "oak-light",
+      "name": "Roble Claro",
+      "category": "madera",
+      "filename": "oak-light.svg",
+      "active": true,
+      "sort_order": 1
+    },
+    {
+      "id": "stone-gray",
+      "name": "Piedra Gris",
+      "category": "piedra",
+      "filename": "stone-gray.svg",
+      "active": true,
+      "sort_order": 2
+    },
+    {
+      "id": "hex-dark",
+      "name": "Hexagono Oscuro",
+      "category": "moderno",
+      "filename": "hex-dark.svg",
+      "active": true,
+      "sort_order": 3
+    }
+  ]
+}
