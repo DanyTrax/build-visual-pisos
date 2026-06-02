@@ -1,0 +1,44 @@
+# Stack para Dockge / Docker Compose en produccion
+# Carpeta del stack: clona el repo aqui y crea .env junto a este archivo
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - floor_net
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./data/textures:/usr/share/nginx/html/static/textures:ro
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    networks:
+      - floor_net
+
+networks:
+  floor_net:
+    driver: bridge
