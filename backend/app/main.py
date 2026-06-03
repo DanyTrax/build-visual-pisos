@@ -70,12 +70,14 @@ class UpdateAiConfigRequest(BaseModel):
     replicate_model: str
     floor_text_prompt: str
     negative_mask_prompt: str = ""
-    objects_subtraction_prompt: str = ""
+    floor_text_prompt_alt: str = ""
     environment_prompt: str = ""
     furniture_subtraction_prompt: str = ""
     enable_environment_layer: bool = True
     enable_furniture_subtraction: bool = True
+    enable_color_refinement: bool = False
     enable_object_subtraction: bool = False
+    floor_top_crop_ratio: float = Field(ge=0, le=0.35, default=0.08)
     detection_threshold: float = Field(ge=0, le=1)
     box_threshold: float = Field(ge=0, le=1)
     max_image_width: int = Field(ge=512, le=4096)

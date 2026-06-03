@@ -54,36 +54,69 @@ def heuristic_floor_mask(img_bgr: np.ndarray) -> np.ndarray:
     return postprocess_floor_mask(mask, (h, w))
 
 
-def postprocess_floor_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+def fill_floor_mask_continuous(mask: np.ndarray) -> np.ndarray:
+    """Cierra huecos entre baldosas y reconecta el piso hacia el fondo de la escena."""
+    h, w = mask.shape[:2]
+    m = np.clip(mask, 0, 255).astype(np.uint8)
+    k = max(17, int(min(h, w) * 0.025) | 1)
+    kernel = np.ones((k, k), np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    filled = m.copy()
+    flood = np.zeros((h + 2, w + 2), np.uint8)
+    step = max(1, w // 16)
+    for x in range(0, w, step):
+        for y in (h - 1, h - 2, h - 3):
+            if y < 0 or filled[y, x] <= 127:
+                continue
+            cv2.floodFill(filled, flood, (int(x), int(y)), 255)
+
+    if int((filled > 127).sum()) < int((m > 127).sum()) * 0.55:
+        filled = m
+
+    for y in range(h - 1, int(h * 0.12), -1):
+        row = filled[y, :]
+        if (row > 127).mean() < 0.2:
+            continue
+        gap = cv2.morphologyEx(row.reshape(1, -1), cv2.MORPH_CLOSE, np.ones((1, 31), np.uint8))
+        filled[y, :] = np.maximum(row, gap.reshape(-1))
+
+    return filled
+
+
+def postprocess_floor_mask(mask: np.ndarray, shape: tuple[int, int], top_crop_ratio: float = 0.08) -> np.ndarray:
     h, w = shape
     mask = np.clip(mask, 0, 255).astype(np.uint8)
-    mask[: int(h * 0.18), :] = 0
-    kernel = np.ones((11, 11), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8), iterations=1)
+    mask[: max(1, int(h * top_crop_ratio)), :] = 0
+    mask = fill_floor_mask_continuous(mask)
+
+    kernel = np.ones((9, 9), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
-        bottom_band = int(h * 0.92)
+        bottom_band = int(h * 0.9)
         kept = []
         for contour in contours:
             x, y, cw, ch = cv2.boundingRect(contour)
             touches_bottom = (y + ch) >= bottom_band
+            centroid_y = y + ch / 2.0
             area = cv2.contourArea(contour)
-            if touches_bottom and area > (h * w * 0.005):
+            in_lower_scene = centroid_y >= h * 0.32
+            if area > (h * w * 0.004) and (touches_bottom or in_lower_scene):
                 kept.append(contour)
         if not kept:
             kept = [max(contours, key=cv2.contourArea)]
         cleaned = np.zeros((h, w), dtype=np.uint8)
         cv2.drawContours(cleaned, kept, -1, 255, thickness=-1)
-        mask = cleaned
+        mask = fill_floor_mask_continuous(cleaned)
 
     mask = cv2.GaussianBlur(mask, (9, 9), 0)
     return mask
 
 
 def refine_floor_remove_foreground_objects(img_bgr: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """Quita de la mascara cojines/muebles por color (beige vs piedra del piso)."""
+    """Quita cojines/muebles por color; evita baldosas marrones (baja saturacion)."""
     h, w = mask.shape[:2]
     active = mask > 127
     if int(active.sum()) < 200:
@@ -95,21 +128,21 @@ def refine_floor_remove_foreground_objects(img_bgr: np.ndarray, mask: np.ndarray
     if len(pixels) < 80:
         return mask
 
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1]
     lab_img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
     floor_lab = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_BGR2LAB).astype(np.float32).reshape(-1, 3)
     median = np.median(floor_lab, axis=0)
     diff = np.linalg.norm(lab_img - median, axis=2)
 
     y_idx = np.arange(h, dtype=np.float32)[:, None]
-    peel_zone = y_idx < (h * 0.84)
-    threshold = float(np.clip(np.percentile(diff[active], 55) + 12, 16, 32))
-    peel = active & peel_zone & (diff > threshold)
+    peel_zone = y_idx < (h * 0.8)
+    threshold = float(np.clip(np.percentile(diff[active], 60) + 14, 20, 38))
+    peel = active & peel_zone & (diff > threshold) & (sat > 45)
 
     cleaned = mask.copy()
     cleaned[peel] = 0
-    kernel = np.ones((9, 9), np.uint8)
-    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=1)
-    return cleaned
+    return fill_floor_mask_continuous(cleaned)
 
 
 def make_tiled_texture(texture_bgr: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:

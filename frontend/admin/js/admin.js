@@ -71,6 +71,7 @@ async function loadAiConfig() {
   for (const key of [
     "replicate_model",
     "floor_text_prompt",
+    "floor_text_prompt_alt",
     "negative_mask_prompt",
     "environment_prompt",
     "furniture_subtraction_prompt",
@@ -89,6 +90,8 @@ async function loadAiConfig() {
   if (envLayer) envLayer.checked = cfg.enable_environment_layer !== false;
   const furnSub = document.getElementById("ai_enable_furniture_subtraction");
   if (furnSub) furnSub.checked = cfg.enable_furniture_subtraction !== false;
+  const colorRef = document.getElementById("ai_enable_color_refinement");
+  if (colorRef) colorRef.checked = !!cfg.enable_color_refinement;
 }
 
 ui.loginForm.addEventListener("submit", async (e) => {
@@ -149,11 +152,13 @@ ui.aiForm.addEventListener("submit", async (e) => {
     const payload = {
       replicate_model: document.getElementById("ai_replicate_model").value,
       floor_text_prompt: document.getElementById("ai_floor_text_prompt").value,
+      floor_text_prompt_alt: document.getElementById("ai_floor_text_prompt_alt").value,
       negative_mask_prompt: document.getElementById("ai_negative_mask_prompt").value,
       environment_prompt: document.getElementById("ai_environment_prompt").value,
       furniture_subtraction_prompt: document.getElementById("ai_furniture_subtraction_prompt").value,
       enable_environment_layer: document.getElementById("ai_enable_environment_layer").checked,
       enable_furniture_subtraction: document.getElementById("ai_enable_furniture_subtraction").checked,
+      enable_color_refinement: document.getElementById("ai_enable_color_refinement").checked,
       mask_adjustment_factor: Number(document.getElementById("ai_mask_adjustment_factor").value),
       detection_threshold: Number(document.getElementById("ai_detection_threshold").value),
       box_threshold: Number(document.getElementById("ai_box_threshold").value),

@@ -57,34 +57,46 @@ def _resize_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 def _score_floor_mask(mask: np.ndarray, height: int) -> float:
     ys, _ = np.where(mask > 127)
-    if len(ys) < 200:
+    if len(ys) < 150:
         return -1.0
     coverage = len(ys) / float(mask.size)
-    if coverage > 0.78:
+    if coverage > 0.88:
         return -1.0
     mean_y = ys.mean() / float(height)
-    bottom_ratio = float((ys > height * 0.38).sum()) / len(ys)
-    top_ratio = float((ys < height * 0.22).sum()) / len(ys)
-    return (mean_y * 1.5) + (bottom_ratio * 2.0) - (top_ratio * 3.0)
+    bottom_ratio = float((ys > height * 0.35).sum()) / len(ys)
+    top_ratio = float((ys < height * 0.15).sum()) / len(ys)
+    coverage_bonus = min(coverage, 0.55) * 0.8
+    return (mean_y * 1.2) + (bottom_ratio * 1.5) + coverage_bonus - (top_ratio * 2.5)
 
 
-def _pick_best_mask(
-    masks: list[np.ndarray],
-    img_shape: tuple[int, int, int],
-    exclude_mask: np.ndarray | None = None,
-) -> np.ndarray | None:
-    h = img_shape[0]
-    best_score = -1.0
-    best_mask = None
+def _merge_floor_masks(masks: list[np.ndarray], img_shape: tuple[int, int, int]) -> np.ndarray | None:
+    """Une todas las mascaras de piso validas (evita huecos entre baldosas)."""
+    h, w = img_shape[:2]
+    merged = np.zeros((h, w), dtype=np.uint8)
     for mask in masks:
-        mask = _resize_mask(mask, img_shape[:2])
-        if exclude_mask is not None and (exclude_mask > 127).any():
-            mask = _subtract_masks(mask, exclude_mask, dilate_iters=2, kernel_size=11)
-        score = _score_floor_mask(mask, h)
-        if score > best_score:
-            best_score = score
-            best_mask = mask
-    return best_mask
+        m = _resize_mask(mask, (h, w))
+        if _score_floor_mask(m, h) < 0:
+            continue
+        merged = np.maximum(merged, m)
+    if int((merged > 127).sum()) < 150:
+        return None
+    return merged
+
+
+def _subtract_overlap_only(
+    base_mask: np.ndarray,
+    remove_mask: np.ndarray,
+    dilate_iters: int = 3,
+    kernel_size: int = 11,
+) -> np.ndarray:
+    overlap = cv2.bitwise_and(base_mask, remove_mask)
+    if int((overlap > 127).sum()) < 40:
+        return base_mask
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    expanded = cv2.dilate(overlap, kernel, iterations=dilate_iters)
+    cleaned = base_mask.copy()
+    cleaned[expanded > 127] = 0
+    return cleaned
 
 
 def _union_masks(masks: list[np.ndarray], shape: tuple[int, int]) -> np.ndarray:
@@ -94,19 +106,6 @@ def _union_masks(masks: list[np.ndarray], shape: tuple[int, int]) -> np.ndarray:
         mask = _resize_mask(mask, shape)
         union = np.maximum(union, mask)
     return union
-
-
-def _subtract_masks(
-    base_mask: np.ndarray,
-    remove_mask: np.ndarray,
-    dilate_iters: int = 2,
-    kernel_size: int = 11,
-) -> np.ndarray:
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    expanded = cv2.dilate(remove_mask, kernel, iterations=dilate_iters)
-    cleaned = base_mask.copy()
-    cleaned[expanded > 127] = 0
-    return cleaned
 
 
 def _run_grounded_sam(
@@ -145,10 +144,7 @@ def _detect_environment(
 ) -> tuple[np.ndarray, bool]:
     env_prompt = config.get(
         "environment_prompt",
-        (
-            "grass . lawn . sky . clouds . water . lake . hill . tree . bush . plant . flower . "
-            "fence . wall . building . window . person . dog . car . umbrella . pot . railing . stairs"
-        ),
+        "grass . lawn . sky . clouds . water . lake . hill . tree . bush . plant . flower . person . umbrella . pot . planter . railing",
     )
     env_masks = _run_grounded_sam(client, tmp_path, config, env_prompt, "", 0)
     if not env_masks:
@@ -199,6 +195,7 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
         client = replicate.Client(api_token=token)
         shape = img_bgr.shape[:2]
         steps: list[str] = []
+        top_crop = float(config.get("floor_top_crop_ratio", 0.08))
 
         environment_mask = empty_env
         furniture_mask = empty_env
@@ -214,19 +211,21 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
                 steps.append("muebles")
             environment_mask = np.maximum(environment_mask, furniture_mask)
 
-        exclude_mask = environment_mask
-
         floor_prompt = config.get(
             "floor_text_prompt",
-            "floor . patio . stone floor . tile floor . wooden floor . ground",
+            "floor . patio . stone floor . tile floor . ceramic tile . wooden floor . ground",
         )
+        floor_prompt_alt = (config.get("floor_text_prompt_alt") or "").strip()
         negative_prompt = config.get(
             "negative_mask_prompt",
-            "sofa . couch . chair . table . furniture . bed . desk . person . wall . grass . bush",
+            "sofa . couch . chair . table . furniture . bed . desk . person . grass . bush",
         )
-        floor_adj = int(config.get("mask_adjustment_factor", 6))
+        floor_adj = int(config.get("mask_adjustment_factor", 8))
 
         floor_masks = _run_grounded_sam(client, tmp_path, config, floor_prompt, negative_prompt, floor_adj)
+        if floor_prompt_alt:
+            floor_masks += _run_grounded_sam(client, tmp_path, config, floor_prompt_alt, negative_prompt, floor_adj)
+
         if not floor_masks:
             floor = heuristic_floor_mask(img_bgr)
             return SegmentationResult(
@@ -236,7 +235,7 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
                 message="fallback: Replicate no devolvio mascaras de piso",
             )
 
-        raw_floor = _pick_best_mask(floor_masks, img_bgr.shape, exclude_mask=exclude_mask)
+        raw_floor = _merge_floor_masks(floor_masks, img_bgr.shape)
         if raw_floor is None:
             floor = heuristic_floor_mask(img_bgr)
             return SegmentationResult(
@@ -245,34 +244,36 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
                 raw_floor_mask=floor,
                 message="fallback: ninguna mascara valida para piso",
             )
+        steps.append("union piso")
 
         floor = raw_floor.copy()
         if (furniture_mask > 127).any():
-            floor = _subtract_masks(floor, furniture_mask, dilate_iters=5, kernel_size=17)
+            floor = _subtract_overlap_only(floor, furniture_mask, dilate_iters=4, kernel_size=15)
             steps.append("restado muebles")
-        elif (environment_mask > 127).any():
-            floor = _subtract_masks(floor, environment_mask, dilate_iters=3, kernel_size=13)
+        if (environment_mask > 127).any():
+            env_only = cv2.subtract(environment_mask, furniture_mask)
+            floor = _subtract_overlap_only(floor, env_only, dilate_iters=3, kernel_size=11)
             steps.append("restado entorno")
 
-        floor = refine_floor_remove_foreground_objects(img_bgr, floor)
-        if "muebles" in steps or "entorno" in steps:
+        if config.get("enable_color_refinement", False):
+            floor = refine_floor_remove_foreground_objects(img_bgr, floor)
             steps.append("filtro color")
 
-        processed = postprocess_floor_mask(floor, shape)
+        processed = postprocess_floor_mask(floor, shape, top_crop_ratio=top_crop)
         if float((processed > 30).mean()) < 0.03:
             floor_h = heuristic_floor_mask(img_bgr)
             return SegmentationResult(
                 floor_mask=floor_h,
                 environment_mask=environment_mask,
                 raw_floor_mask=raw_floor,
-                message="fallback: mascara IA demasiado pequena tras excluir muebles",
+                message="fallback: mascara demasiado pequena",
             )
 
-        msg = "ok: " + " + ".join(steps) if steps else "ok: segmentacion IA (Grounded SAM)"
+        msg = "ok: " + " + ".join(steps) if steps else "ok: segmentacion IA"
         return SegmentationResult(
             floor_mask=processed,
             environment_mask=environment_mask,
-            raw_floor_mask=postprocess_floor_mask(raw_floor, shape),
+            raw_floor_mask=postprocess_floor_mask(raw_floor, shape, top_crop_ratio=top_crop),
             message=msg,
         )
     except Exception as exc:  # noqa: BLE001
