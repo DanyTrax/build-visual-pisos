@@ -67,6 +67,8 @@ class UpdateAiConfigRequest(BaseModel):
     replicate_model: str
     floor_text_prompt: str
     negative_mask_prompt: str = ""
+    objects_subtraction_prompt: str = ""
+    enable_object_subtraction: bool = True
     detection_threshold: float = Field(ge=0, le=1)
     box_threshold: float = Field(ge=0, le=1)
     max_image_width: int = Field(ge=512, le=4096)

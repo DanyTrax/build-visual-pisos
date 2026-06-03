@@ -72,6 +72,8 @@ async function loadAiConfig() {
     "replicate_model",
     "floor_text_prompt",
     "negative_mask_prompt",
+    "objects_subtraction_prompt",
+    "mask_adjustment_factor",
     "detection_threshold",
     "box_threshold",
     "max_image_width",
@@ -79,9 +81,11 @@ async function loadAiConfig() {
     "blend_strength",
   ]) {
     const el = document.getElementById(`ai_${key}`);
-    if (el) el.value = cfg[key];
+    if (el) el.value = cfg[key] ?? "";
   }
   document.getElementById("ai_enable_fallback_heuristic").checked = !!cfg.enable_fallback_heuristic;
+  const objSub = document.getElementById("ai_enable_object_subtraction");
+  if (objSub) objSub.checked = cfg.enable_object_subtraction !== false;
 }
 
 ui.loginForm.addEventListener("submit", async (e) => {
@@ -143,6 +147,9 @@ ui.aiForm.addEventListener("submit", async (e) => {
       replicate_model: document.getElementById("ai_replicate_model").value,
       floor_text_prompt: document.getElementById("ai_floor_text_prompt").value,
       negative_mask_prompt: document.getElementById("ai_negative_mask_prompt").value,
+      objects_subtraction_prompt: document.getElementById("ai_objects_subtraction_prompt").value,
+      enable_object_subtraction: document.getElementById("ai_enable_object_subtraction").checked,
+      mask_adjustment_factor: Number(document.getElementById("ai_mask_adjustment_factor").value),
       detection_threshold: Number(document.getElementById("ai_detection_threshold").value),
       box_threshold: Number(document.getElementById("ai_box_threshold").value),
       max_image_width: Number(document.getElementById("ai_max_image_width").value),

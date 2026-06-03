@@ -57,9 +57,18 @@ def postprocess_floor_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarr
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
-        best = max(contours, key=cv2.contourArea)
+        bottom_band = int(h * 0.92)
+        kept = []
+        for contour in contours:
+            x, y, cw, ch = cv2.boundingRect(contour)
+            touches_bottom = (y + ch) >= bottom_band
+            area = cv2.contourArea(contour)
+            if touches_bottom and area > (h * w * 0.005):
+                kept.append(contour)
+        if not kept:
+            kept = [max(contours, key=cv2.contourArea)]
         cleaned = np.zeros((h, w), dtype=np.uint8)
-        cv2.drawContours(cleaned, [best], -1, 255, thickness=-1)
+        cv2.drawContours(cleaned, kept, -1, 255, thickness=-1)
         mask = cleaned
 
     mask = cv2.GaussianBlur(mask, (9, 9), 0)
