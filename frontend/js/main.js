@@ -49,7 +49,9 @@ async function analyze() {
   if (!res.ok) throw new Error(data.detail || "No se pudo analizar la imagen");
   state.sessionId = data.session_id;
   ui.previewImg.src = `data:image/jpeg;base64,${data.mask_preview_base64}`;
-  ui.statusText.textContent = data.message || "Analisis listo. Elige un material.";
+  const msg = data.message || "Analisis listo. Elige un material.";
+  ui.statusText.textContent = msg;
+  ui.statusText.className = msg.includes("fallback") ? "mt-3 text-sm text-amber-600" : "mt-3 text-sm text-slate-600";
 }
 
 async function applyTexture(textureId) {

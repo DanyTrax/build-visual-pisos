@@ -1,7 +1,8 @@
 {
   "replicate_model": "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
-  "floor_text_prompt": "floor, ground, flooring",
-  "negative_mask_prompt": "furniture, wall, person, rug",
+  "floor_text_prompt": "floor . wooden floor . tile floor . laminate floor . ground",
+  "negative_mask_prompt": "bed . desk . chair . furniture . wall . shelf . curtain . person",
+  "mask_adjustment_factor": 12,
   "detection_threshold": 0.3,
   "box_threshold": 0.25,
   "max_image_width": 1280,

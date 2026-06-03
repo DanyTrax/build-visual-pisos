@@ -72,6 +72,7 @@ class UpdateAiConfigRequest(BaseModel):
     max_image_width: int = Field(ge=512, le=4096)
     enable_fallback_heuristic: bool
     mask_feather_px: int = Field(ge=3, le=99)
+    mask_adjustment_factor: int = Field(ge=0, le=50)
     blend_strength: float = Field(ge=0, le=1)
 
 
@@ -102,6 +103,7 @@ def _effective_ai_config() -> dict:
         "max_image_width": settings.max_image_width,
         "enable_fallback_heuristic": settings.enable_fallback_heuristic,
         "mask_feather_px": settings.mask_feather_px,
+        "mask_adjustment_factor": settings.mask_adjustment_factor,
         "blend_strength": settings.blend_strength,
     }
     defaults.update(config)

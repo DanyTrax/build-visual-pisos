@@ -33,11 +33,36 @@ def create_overlay(original_bgr: np.ndarray, mask: np.ndarray) -> np.ndarray:
 
 
 def heuristic_floor_mask(img_bgr: np.ndarray) -> np.ndarray:
+    """Respaldo aproximado: prioriza zona inferior visible (no cubre muebles en zona alta)."""
     h, w = img_bgr.shape[:2]
-    mask = np.zeros((h, w), dtype=np.uint8)
-    y_start = int(h * 0.48)
-    mask[y_start:h, :] = 255
-    mask = cv2.GaussianBlur(mask, (15, 15), 0)
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    lower = np.array([0, 0, 40], dtype=np.uint8)
+    upper = np.array([180, 80, 220], dtype=np.uint8)
+    color_mask = cv2.inRange(hsv, lower, upper)
+
+    y_grid = np.linspace(0, 1, h, dtype=np.float32)[:, None]
+    weight = np.clip((y_grid - 0.25) / 0.75, 0, 1)
+    weighted = (color_mask.astype(np.float32) * weight).astype(np.uint8)
+    _, mask = cv2.threshold(weighted, 40, 255, cv2.THRESH_BINARY)
+    return postprocess_floor_mask(mask, (h, w))
+
+
+def postprocess_floor_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    h, w = shape
+    mask = np.clip(mask, 0, 255).astype(np.uint8)
+    mask[: int(h * 0.18), :] = 0
+    kernel = np.ones((11, 11), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8), iterations=1)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        best = max(contours, key=cv2.contourArea)
+        cleaned = np.zeros((h, w), dtype=np.uint8)
+        cv2.drawContours(cleaned, [best], -1, 255, thickness=-1)
+        mask = cleaned
+
+    mask = cv2.GaussianBlur(mask, (9, 9), 0)
     return mask
 
 

@@ -21,6 +21,7 @@ class Settings:
     max_image_width: int
     enable_fallback_heuristic: bool
     mask_feather_px: int
+    mask_adjustment_factor: int
     blend_strength: float
     allowed_origins: list[str]
     jwt_secret: str
@@ -60,6 +61,7 @@ def get_settings() -> Settings:
         max_image_width=int(os.getenv("MAX_IMAGE_WIDTH", "1280")),
         enable_fallback_heuristic=_to_bool(os.getenv("ENABLE_FALLBACK_HEURISTIC", "true"), True),
         mask_feather_px=int(os.getenv("MASK_FEATHER_PX", "11")),
+        mask_adjustment_factor=int(os.getenv("MASK_ADJUSTMENT_FACTOR", "12")),
         blend_strength=float(os.getenv("BLEND_STRENGTH", "0.75")),
         allowed_origins=origins,
         jwt_secret=jwt_secret,
