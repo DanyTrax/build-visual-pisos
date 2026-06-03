@@ -97,7 +97,7 @@ def main() -> int:
     parser.add_argument("--server-ip", default="")
     parser.add_argument("--server-user", default="root")
     parser.add_argument("--api-port", default="8001")
-    parser.add_argument("--web-port", default="8080")
+    parser.add_argument("--web-port", default="8090")
     parser.add_argument("--non-interactive", action="store_true")
     args = parser.parse_args()
 
