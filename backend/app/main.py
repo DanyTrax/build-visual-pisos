@@ -156,8 +156,13 @@ def _bootstrap_admin_if_needed() -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    ensure_data_layout(settings.data_dir)
-    _bootstrap_admin_if_needed()
+    try:
+        ensure_data_layout(settings.data_dir)
+        _bootstrap_admin_if_needed()
+        print("[startup] API lista")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[startup] ERROR: {exc}")
+        raise
 
 
 @app.get("/health")
