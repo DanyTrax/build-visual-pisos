@@ -6,6 +6,9 @@ services:
     container_name: floor_visualizer_api
     env_file:
       - .env
+    environment:
+      DATA_DIR: /app/data
+      AUTO_GENERATE_SECRETS: "true"
     volumes:
       - ./data:/app/data
     ports:

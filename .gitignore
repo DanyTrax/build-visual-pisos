@@ -11,3 +11,5 @@ data/textures/*
 !data/textures/.gitkeep
 !data/textures/*.svg
 
+data/secrets.json
+data/users.json

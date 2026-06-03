@@ -1,6 +1,8 @@
 import os
 from dataclasses import dataclass
 
+from .secrets_manager import ensure_runtime_secrets, is_placeholder
+
 
 def _to_bool(value: str, default: bool = False) -> bool:
     if value is None:
@@ -32,6 +34,19 @@ def get_settings() -> Settings:
     allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
     origins = ["*"] if allowed_origins == "*" else [o.strip() for o in allowed_origins.split(",") if o.strip()]
 
+    data_dir = os.getenv("DATA_DIR", "/app/data")
+    auto_generate = _to_bool(os.getenv("AUTO_GENERATE_SECRETS", "true"), True)
+
+    jwt_secret = os.getenv("JWT_SECRET", "")
+    admin_password = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "")
+
+    if auto_generate or is_placeholder(jwt_secret) or is_placeholder(admin_password):
+        runtime = ensure_runtime_secrets(data_dir)
+        if auto_generate or is_placeholder(jwt_secret):
+            jwt_secret = runtime["jwt_secret"]
+        if auto_generate or is_placeholder(admin_password):
+            admin_password = runtime["admin_bootstrap_password"]
+
     return Settings(
         replicate_api_token=os.getenv("REPLICATE_API_TOKEN", ""),
         replicate_model=os.getenv(
@@ -47,9 +62,9 @@ def get_settings() -> Settings:
         mask_feather_px=int(os.getenv("MASK_FEATHER_PX", "11")),
         blend_strength=float(os.getenv("BLEND_STRENGTH", "0.75")),
         allowed_origins=origins,
-        jwt_secret=os.getenv("JWT_SECRET", "change-this-secret"),
+        jwt_secret=jwt_secret,
         jwt_expires_min=int(os.getenv("JWT_EXPIRES_MIN", "720")),
         admin_bootstrap_email=os.getenv("ADMIN_BOOTSTRAP_EMAIL", "admin@example.com"),
-        admin_bootstrap_password=os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "ChangeMe123!"),
-        data_dir=os.getenv("DATA_DIR", "/app/data"),
+        admin_bootstrap_password=admin_password,
+        data_dir=data_dir,
     )

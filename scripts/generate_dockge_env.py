@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Generador interactivo de .env y comandos SSH para desplegar en Dockge.
+Generador de .env para Dockge.
+Las llaves JWT y password admin se generan automaticamente dentro de Docker
+en el primer arranque (data/secrets.json).
 
 Uso:
   python3 scripts/generate_dockge_env.py
-  python3 scripts/generate_dockge_env.py --output .env --server-ip 192.168.1.50
+  python3 scripts/generate_dockge_env.py --server-ip 192.168.1.50
 """
 
 from __future__ import annotations
 
 import argparse
-import getpass
-import secrets
 import sys
 from pathlib import Path
 
@@ -30,22 +30,11 @@ def prompt(text: str, default: str = "") -> str:
     return value or default
 
 
-def prompt_yes_no(text: str, default: bool = True) -> bool:
-    default_label = "S/n" if default else "s/N"
-    value = input(f"{text} ({default_label}): ").strip().lower()
-    if not value:
-        return default
-    return value in {"s", "si", "y", "yes", "1", "true"}
-
-
 def build_env_content(
     replicate_token: str,
-    jwt_secret: str,
     admin_email: str,
-    admin_password: str,
     api_port: str,
     web_port: str,
-    server_ip: str,
 ) -> str:
     return f"""REPLICATE_API_TOKEN={replicate_token}
 
@@ -60,11 +49,11 @@ MASK_FEATHER_PX=11
 BLEND_STRENGTH=0.75
 
 ALLOWED_ORIGINS=*
-JWT_SECRET={jwt_secret}
 JWT_EXPIRES_MIN=720
 
+# Llaves random: las genera Docker al primer arranque en data/secrets.json
+AUTO_GENERATE_SECRETS=true
 ADMIN_BOOTSTRAP_EMAIL={admin_email}
-ADMIN_BOOTSTRAP_PASSWORD={admin_password}
 
 DATA_DIR=/app/data
 API_PORT={api_port}
@@ -74,32 +63,26 @@ WEB_PORT={web_port}
 
 def build_ssh_script(stack_path: str) -> str:
     return f"""#!/bin/bash
-# Ejecutar en el servidor Dockge (como root o con sudo)
-
 set -e
 STACK="{stack_path}"
-
 mkdir -p "$STACK"
 cd "$STACK"
 
 if [ ! -d .git ]; then
   git init
   git remote add origin {REPO_URL} 2>/dev/null || git remote set-url origin {REPO_URL}
-  git fetch origin
-  git reset --hard origin/main
-else
-  git fetch origin
-  git reset --hard origin/main
 fi
+git fetch origin
+git reset --hard origin/main
 
 if [ ! -f .env ]; then
-  echo "ERROR: falta .env en $STACK"
-  echo "Copia el .env generado desde tu PC:"
-  echo "  scp .env root@TU_SERVIDOR:$STACK/.env"
+  echo "Falta .env. Sube el generado desde tu PC con scp."
   exit 1
 fi
 
-echo "Listo. Ahora en Dockge: Desplegar stack build-visual-pisos"
+echo "Repo listo. En Dockge pulsa Desplegar."
+echo "Tras el primer deploy, lee la clave admin con:"
+echo "  cat {stack_path}/data/secrets.json"
 """
 
 
@@ -108,85 +91,59 @@ def build_scp_command(local_env: Path, stack_path: str, server_user: str, server
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generador .env + guia Dockge para build-visual-pisos")
-    parser.add_argument("--output", default=".env", help="Archivo .env local a generar (default: .env)")
-    parser.add_argument("--stack-path", default=DEFAULT_STACK_PATH, help="Ruta del stack en el servidor")
-    parser.add_argument("--server-ip", default="", help="IP o dominio del servidor")
-    parser.add_argument("--server-user", default="root", help="Usuario SSH (default: root)")
-    parser.add_argument("--api-port", default="8001", help="Puerto host API (default: 8001)")
-    parser.add_argument("--web-port", default="8080", help="Puerto host web (default: 8080)")
-    parser.add_argument("--non-interactive", action="store_true", help="Usar defaults sin preguntas")
+    parser = argparse.ArgumentParser(description="Generador .env Dockge (llaves random en Docker)")
+    parser.add_argument("--output", default=".env")
+    parser.add_argument("--stack-path", default=DEFAULT_STACK_PATH)
+    parser.add_argument("--server-ip", default="")
+    parser.add_argument("--server-user", default="root")
+    parser.add_argument("--api-port", default="8001")
+    parser.add_argument("--web-port", default="8080")
+    parser.add_argument("--non-interactive", action="store_true")
     args = parser.parse_args()
 
-    print("=== Generador Dockge: build-visual-pisos ===\n")
+    print("=== Generador Dockge (llaves random en Docker) ===\n")
 
     if args.non_interactive:
         replicate_token = ""
         admin_email = "admin@example.com"
-        admin_password = "ChangeMe123!"
-        jwt_secret = secrets.token_urlsafe(48)
         server_ip = args.server_ip or "TU_IP"
+        api_port = args.api_port
+        web_port = args.web_port
     else:
         replicate_token = prompt("Token Replicate (r8_...)", "")
-        if not replicate_token:
-            print("AVISO: sin token, la IA usara fallback heuristico en pruebas.")
-
         admin_email = prompt("Email admin bootstrap", "admin@example.com")
-        admin_password = getpass.getpass("Password admin bootstrap: ")
-        if len(admin_password) < 8:
-            print("AVISO: password corto; usa minimo 8 caracteres en produccion.")
-
-        auto_jwt = prompt_yes_no("Generar JWT_SECRET automaticamente?", True)
-        jwt_secret = secrets.token_urlsafe(48) if auto_jwt else prompt("JWT_SECRET", secrets.token_urlsafe(48))
-
         server_ip = args.server_ip or prompt("IP o dominio del servidor", "TU_IP")
-
-    api_port = args.api_port
-    web_port = args.web_port
-    if not args.non_interactive:
-        api_port = prompt("Puerto API en host", args.api_port)
-        web_port = prompt("Puerto WEB en host", args.web_port)
-
-    env_content = build_env_content(
-        replicate_token=replicate_token,
-        jwt_secret=jwt_secret,
-        admin_email=admin_email.lower(),
-        admin_password=admin_password,
-        api_port=api_port,
-        web_port=web_port,
-        server_ip=server_ip,
-    )
+        api_port = prompt("Puerto API host", args.api_port)
+        web_port = prompt("Puerto WEB host", args.web_port)
 
     output_path = Path(args.output)
-    output_path.write_text(env_content, encoding="utf-8")
-    print(f"\nOK: archivo generado -> {output_path.resolve()}")
+    output_path.write_text(
+        build_env_content(replicate_token, admin_email.lower(), api_port, web_port),
+        encoding="utf-8",
+    )
+    print(f"OK: {output_path.resolve()}")
 
     ssh_script_path = output_path.parent / "server_setup.sh"
     ssh_script_path.write_text(build_ssh_script(args.stack_path), encoding="utf-8")
     ssh_script_path.chmod(0o755)
-    print(f"OK: script servidor -> {ssh_script_path.resolve()}")
+    print(f"OK: {ssh_script_path.resolve()}")
 
-    print("\n--- Proximos pasos ---")
-    print("1) En tu PC (ya tienes .env generado).")
-    if server_ip and server_ip != "TU_IP":
-        print(f"2) Subir .env al servidor:")
+    print("\n--- Pasos ---")
+    print("1) Sube .env al servidor (scp).")
+    if server_ip != "TU_IP":
         print(f"   {build_scp_command(output_path, args.stack_path, args.server_user, server_ip)}")
-        print("3) En SSH del servidor:")
-        print(f"   bash {args.stack_path}/server_setup.sh")
-        print("   (o copia y ejecuta el contenido de server_setup.sh)")
-    else:
-        print("2) Sube .env al servidor con scp (reemplaza TU_IP).")
-        print("3) Ejecuta server_setup.sh en el servidor.")
+    print("2) SSH: bash server_setup.sh")
+    print("3) Dockge -> Desplegar")
+    print("4) Obtener password admin generado:")
+    print(f"   cat {args.stack_path}/data/secrets.json")
 
-    print("4) En Dockge: stack build-visual-pisos -> Desplegar")
-
-    print("\n--- URLs ---")
     host = server_ip if server_ip != "TU_IP" else "TU_IP"
+    print("\n--- URLs ---")
     print(f"Visualizer: http://{host}:{web_port}/")
     print(f"Admin:      http://{host}:{web_port}/admin/")
-    print(f"Health API: http://{host}:{api_port}/health")
-    print(f"Login admin: {admin_email}")
-
+    print(f"Health:     http://{host}:{api_port}/health")
+    print(f"Login email: {admin_email}")
+    print("Login pass:  (ver data/secrets.json en el servidor)")
     return 0
 
 

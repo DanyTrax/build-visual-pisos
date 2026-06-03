@@ -163,11 +163,14 @@ async def startup() -> None:
 @app.get("/health")
 async def health() -> dict:
     data_writable = os.access(settings.data_dir, os.W_OK)
+    secrets_file = Path(settings.data_dir) / "secrets.json"
     return {
         "status": "ok",
         "service": "floor-visualizer-api",
         "replicate_configured": bool(settings.replicate_api_token),
         "data_writable": data_writable,
+        "secrets_file_exists": secrets_file.exists(),
+        "auto_generate_secrets": True,
     }
 
 
