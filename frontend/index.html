@@ -10,7 +10,7 @@
     <main class="mx-auto max-w-6xl p-4 md:p-8">
       <header class="mb-4 rounded-2xl bg-white p-4 shadow">
         <h1 class="text-xl font-bold md:text-2xl">Visualizer de Pisos</h1>
-        <p class="text-sm text-slate-600">Sube o toma una foto, detecta piso con IA y aplica materiales.</p>
+        <p class="text-sm text-slate-600">IA detecta el entorno, excluye lo que no es piso y luego aplicas materiales.</p>
         <a class="mt-2 inline-block text-sm text-sky-700 underline" href="/landing.html">Ver instructivo de integracion IA</a>
       </header>
 
@@ -22,7 +22,13 @@
             Analizar piso
           </button>
           <p id="statusText" class="mt-3 text-sm text-slate-600">Esperando imagen...</p>
-          <img id="previewImg" alt="Preview mascara" class="mt-4 w-full rounded-xl border object-contain" />
+          <div id="previewTabs" class="mt-4 hidden flex flex-wrap gap-2 text-sm">
+            <button type="button" data-tab="env" class="preview-tab rounded-lg border px-3 py-1.5 font-medium">1. Entorno (rojo)</button>
+            <button type="button" data-tab="raw" class="preview-tab rounded-lg border px-3 py-1.5">2. Piso antes (cyan)</button>
+            <button type="button" data-tab="floor" class="preview-tab rounded-lg border border-sky-600 bg-sky-50 px-3 py-1.5 font-medium">3. Solo piso (verde)</button>
+          </div>
+          <p id="previewLegend" class="mt-2 hidden text-xs text-slate-500"></p>
+          <img id="previewImg" alt="Preview mascara" class="mt-2 w-full rounded-xl border object-contain" />
         </article>
 
         <article class="rounded-2xl bg-white p-4 shadow">

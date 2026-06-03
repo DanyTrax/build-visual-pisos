@@ -23,11 +23,18 @@ def encode_image_base64(img_bgr: np.ndarray, quality: int = 90) -> str:
     return base64.b64encode(buf.tobytes()).decode("utf-8")
 
 
-def create_overlay(original_bgr: np.ndarray, mask: np.ndarray) -> np.ndarray:
+def create_overlay(
+    original_bgr: np.ndarray,
+    mask: np.ndarray,
+    color_bgr: tuple[int, int, int] = (0, 180, 0),
+    alpha_scale: float = 0.45,
+) -> np.ndarray:
     mask = np.clip(mask, 0, 255).astype(np.uint8)
     color = np.zeros_like(original_bgr)
-    color[:, :, 1] = 180
-    alpha = (mask / 255.0 * 0.45)[:, :, None]
+    color[:, :, 0] = color_bgr[0]
+    color[:, :, 1] = color_bgr[1]
+    color[:, :, 2] = color_bgr[2]
+    alpha = (mask / 255.0 * alpha_scale)[:, :, None]
     merged = (original_bgr.astype(np.float32) * (1.0 - alpha) + color.astype(np.float32) * alpha).astype(np.uint8)
     return merged
 

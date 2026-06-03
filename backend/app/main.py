@@ -51,6 +51,9 @@ class AnalyzeResponse(BaseModel):
     floor_detected: bool
     message: str
     mask_preview_base64: str
+    environment_preview_base64: str = ""
+    raw_floor_preview_base64: str = ""
+    environment_detected: bool = False
 
 
 class VisualizeRequest(BaseModel):
@@ -68,7 +71,9 @@ class UpdateAiConfigRequest(BaseModel):
     floor_text_prompt: str
     negative_mask_prompt: str = ""
     objects_subtraction_prompt: str = ""
-    enable_object_subtraction: bool = True
+    environment_prompt: str = ""
+    enable_environment_layer: bool = True
+    enable_object_subtraction: bool = False
     detection_threshold: float = Field(ge=0, le=1)
     box_threshold: float = Field(ge=0, le=1)
     max_image_width: int = Field(ge=512, le=4096)
@@ -204,22 +209,29 @@ async def analyze_room(image: UploadFile = File(...)) -> AnalyzeResponse:
 
     cfg = _effective_ai_config()
     img_bgr = load_image_from_bytes(raw, max_width=int(cfg["max_image_width"]))
-    mask, message = segment_floor_with_replicate(raw, img_bgr, cfg, settings.replicate_api_token)
+    seg = segment_floor_with_replicate(raw, img_bgr, cfg, settings.replicate_api_token)
 
     session_id = new_session_id()
     folder = create_session_folder(settings.data_dir, session_id)
     cv2.imwrite(str(folder / "original.jpg"), img_bgr)
-    cv2.imwrite(str(folder / "mask.png"), mask)
+    cv2.imwrite(str(folder / "mask.png"), seg.floor_mask)
+    cv2.imwrite(str(folder / "environment.png"), seg.environment_mask)
     (folder / "meta.json").write_text(
-        f'{{"created_at":"{datetime.now(timezone.utc).isoformat()}","message":"{message}"}}', encoding="utf-8"
+        f'{{"created_at":"{datetime.now(timezone.utc).isoformat()}","message":"{seg.message}"}}', encoding="utf-8"
     )
 
-    overlay = create_overlay(img_bgr, mask)
+    floor_overlay = create_overlay(img_bgr, seg.floor_mask)
+    env_overlay = create_overlay(img_bgr, seg.environment_mask, color_bgr=(40, 40, 220), alpha_scale=0.42)
+    raw_overlay = create_overlay(img_bgr, seg.raw_floor_mask, color_bgr=(0, 200, 220), alpha_scale=0.35)
+    env_detected = bool((seg.environment_mask > 20).sum() > 100)
     return AnalyzeResponse(
         session_id=session_id,
-        floor_detected=bool((mask > 20).sum() > 100),
-        message=message,
-        mask_preview_base64=encode_image_base64(overlay, quality=88),
+        floor_detected=bool((seg.floor_mask > 20).sum() > 100),
+        message=seg.message,
+        mask_preview_base64=encode_image_base64(floor_overlay, quality=88),
+        environment_preview_base64=encode_image_base64(env_overlay, quality=88) if env_detected else "",
+        raw_floor_preview_base64=encode_image_base64(raw_overlay, quality=85),
+        environment_detected=env_detected,
     )
 
 
@@ -373,9 +385,17 @@ async def admin_ai_config_test(
     raw = await image.read()
     cfg = _effective_ai_config()
     img = load_image_from_bytes(raw, max_width=int(cfg["max_image_width"]))
-    mask, message = segment_floor_with_replicate(raw, img, cfg, settings.replicate_api_token)
-    overlay = create_overlay(img, mask)
-    return {"message": message, "preview_base64": encode_image_base64(overlay, quality=88)}
+    seg = segment_floor_with_replicate(raw, img, cfg, settings.replicate_api_token)
+    floor_overlay = create_overlay(img, seg.floor_mask)
+    env_overlay = create_overlay(img, seg.environment_mask, color_bgr=(40, 40, 220), alpha_scale=0.42)
+    raw_overlay = create_overlay(img, seg.raw_floor_mask, color_bgr=(0, 200, 220), alpha_scale=0.35)
+    return {
+        "message": seg.message,
+        "preview_base64": encode_image_base64(floor_overlay, quality=88),
+        "environment_preview_base64": encode_image_base64(env_overlay, quality=88),
+        "raw_floor_preview_base64": encode_image_base64(raw_overlay, quality=85),
+        "environment_detected": bool((seg.environment_mask > 20).sum() > 100),
+    }
 
 
 @app.get("/api/admin/users")

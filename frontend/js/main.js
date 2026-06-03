@@ -1,6 +1,8 @@
 const state = {
   sessionId: null,
   textures: [],
+  previews: { env: "", raw: "", floor: "" },
+  activeTab: "floor",
 };
 
 const ui = {
@@ -8,9 +10,34 @@ const ui = {
   analyzeBtn: document.getElementById("analyzeBtn"),
   statusText: document.getElementById("statusText"),
   previewImg: document.getElementById("previewImg"),
+  previewTabs: document.getElementById("previewTabs"),
+  previewLegend: document.getElementById("previewLegend"),
   resultImg: document.getElementById("resultImg"),
   texturesGrid: document.getElementById("texturesGrid"),
 };
+
+const TAB_LEGENDS = {
+  env: "Rojo: todo lo detectado como NO piso (césped, cielo, muebles, personas…).",
+  raw: "Cyan: piso detectado por IA antes de quitar el entorno.",
+  floor: "Verde: máscara final solo piso — usa esta para elegir material.",
+};
+
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  const src = state.previews[tab];
+  if (src) ui.previewImg.src = src;
+  ui.previewLegend.textContent = TAB_LEGENDS[tab] || "";
+  document.querySelectorAll(".preview-tab").forEach((btn) => {
+    const active = btn.dataset.tab === tab;
+    btn.classList.toggle("border-sky-600", active);
+    btn.classList.toggle("bg-sky-50", active);
+    btn.classList.toggle("font-medium", active);
+  });
+}
+
+document.querySelectorAll(".preview-tab").forEach((btn) => {
+  btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+});
 
 async function fetchTextures() {
   const res = await fetch("/api/textures");
@@ -41,15 +68,27 @@ async function analyze() {
     alert("Selecciona o toma una foto primero.");
     return;
   }
-  ui.statusText.textContent = "Subiendo y analizando piso...";
+  ui.statusText.textContent = "Capa 1: entorno… Capa 2: piso… (puede tardar ~1 min)";
+  ui.previewTabs.classList.add("hidden");
   const fd = new FormData();
   fd.append("image", file);
   const res = await fetch("/api/analyze", { method: "POST", body: fd });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "No se pudo analizar la imagen");
   state.sessionId = data.session_id;
-  ui.previewImg.src = `data:image/jpeg;base64,${data.mask_preview_base64}`;
-  const msg = data.message || "Analisis listo. Elige un material.";
+
+  const b64 = (s) => (s ? `data:image/jpeg;base64,${s}` : "");
+  state.previews.floor = b64(data.mask_preview_base64);
+  state.previews.env = b64(data.environment_preview_base64);
+  state.previews.raw = b64(data.raw_floor_preview_base64) || state.previews.floor;
+
+  ui.previewTabs.classList.remove("hidden");
+  ui.previewLegend.classList.remove("hidden");
+  const envBtn = document.querySelector('.preview-tab[data-tab="env"]');
+  if (envBtn) envBtn.style.display = data.environment_detected ? "" : "none";
+  setActiveTab("floor");
+
+  const msg = data.message || "Analisis listo. Revisa las 3 capas y elige material.";
   ui.statusText.textContent = msg;
   ui.statusText.className = msg.includes("fallback") ? "mt-3 text-sm text-amber-600" : "mt-3 text-sm text-slate-600";
 }

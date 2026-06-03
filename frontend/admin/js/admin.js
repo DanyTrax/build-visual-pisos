@@ -72,6 +72,7 @@ async function loadAiConfig() {
     "replicate_model",
     "floor_text_prompt",
     "negative_mask_prompt",
+    "environment_prompt",
     "objects_subtraction_prompt",
     "mask_adjustment_factor",
     "detection_threshold",
@@ -84,8 +85,10 @@ async function loadAiConfig() {
     if (el) el.value = cfg[key] ?? "";
   }
   document.getElementById("ai_enable_fallback_heuristic").checked = !!cfg.enable_fallback_heuristic;
+  const envLayer = document.getElementById("ai_enable_environment_layer");
+  if (envLayer) envLayer.checked = cfg.enable_environment_layer !== false;
   const objSub = document.getElementById("ai_enable_object_subtraction");
-  if (objSub) objSub.checked = cfg.enable_object_subtraction !== false;
+  if (objSub) objSub.checked = !!cfg.enable_object_subtraction;
 }
 
 ui.loginForm.addEventListener("submit", async (e) => {
@@ -147,7 +150,9 @@ ui.aiForm.addEventListener("submit", async (e) => {
       replicate_model: document.getElementById("ai_replicate_model").value,
       floor_text_prompt: document.getElementById("ai_floor_text_prompt").value,
       negative_mask_prompt: document.getElementById("ai_negative_mask_prompt").value,
+      environment_prompt: document.getElementById("ai_environment_prompt").value,
       objects_subtraction_prompt: document.getElementById("ai_objects_subtraction_prompt").value,
+      enable_environment_layer: document.getElementById("ai_enable_environment_layer").checked,
       enable_object_subtraction: document.getElementById("ai_enable_object_subtraction").checked,
       mask_adjustment_factor: Number(document.getElementById("ai_mask_adjustment_factor").value),
       detection_threshold: Number(document.getElementById("ai_detection_threshold").value),
@@ -168,12 +173,31 @@ ui.aiForm.addEventListener("submit", async (e) => {
   }
 });
 
+const aiTestPreviews = { env: "", raw: "", floor: "" };
+
+function showAiTestTab(tab) {
+  const src = aiTestPreviews[tab];
+  if (src) document.getElementById("aiPreview").src = src;
+  document.querySelectorAll("[data-ai-tab]").forEach((btn) => {
+    btn.classList.toggle("border-sky-600", btn.dataset.aiTab === tab);
+  });
+}
+
+document.querySelectorAll("[data-ai-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => showAiTestTab(btn.dataset.aiTab));
+});
+
 ui.aiTestForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
     const fd = new FormData(ui.aiTestForm);
     const data = await api("/api/admin/ai-config/test", { method: "POST", body: fd });
-    ui.aiPreview.src = `data:image/jpeg;base64,${data.preview_base64}`;
+    const b64 = (s) => (s ? `data:image/jpeg;base64,${s}` : "");
+    aiTestPreviews.floor = b64(data.preview_base64);
+    aiTestPreviews.env = b64(data.environment_preview_base64);
+    aiTestPreviews.raw = b64(data.raw_floor_preview_base64) || aiTestPreviews.floor;
+    document.getElementById("aiPreviewTabs").classList.remove("hidden");
+    showAiTestTab("floor");
     ui.globalStatus.textContent = data.message || "Prueba completada.";
   } catch (err) {
     ui.globalStatus.textContent = err.message;

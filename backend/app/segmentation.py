@@ -1,4 +1,5 @@
 import tempfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,14 @@ import numpy as np
 from PIL import Image
 
 from .image_ops import heuristic_floor_mask, postprocess_floor_mask
+
+
+@dataclass
+class SegmentationResult:
+    floor_mask: np.ndarray
+    environment_mask: np.ndarray
+    raw_floor_mask: np.ndarray
+    message: str
 
 
 def _mask_from_bytes(raw: bytes) -> np.ndarray:
@@ -77,10 +86,10 @@ def _union_masks(masks: list[np.ndarray], shape: tuple[int, int]) -> np.ndarray:
     return union
 
 
-def _subtract_object_mask(floor_mask: np.ndarray, object_mask: np.ndarray) -> np.ndarray:
-    kernel = np.ones((9, 9), np.uint8)
-    expanded = cv2.dilate(object_mask, kernel, iterations=2)
-    cleaned = floor_mask.copy()
+def _subtract_masks(base_mask: np.ndarray, remove_mask: np.ndarray, dilate_iters: int = 2) -> np.ndarray:
+    kernel = np.ones((11, 11), np.uint8)
+    expanded = cv2.dilate(remove_mask, kernel, iterations=dilate_iters)
+    cleaned = base_mask.copy()
     cleaned[expanded > 127] = 0
     return cleaned
 
@@ -113,9 +122,54 @@ def _run_grounded_sam(
     return masks
 
 
-def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: dict, token: str) -> tuple[np.ndarray, str]:
+def _detect_environment(
+    client: Any,
+    tmp_path: str,
+    config: dict,
+    shape: tuple[int, int],
+) -> tuple[np.ndarray, bool]:
+    env_prompt = config.get(
+        "environment_prompt",
+        (
+            "grass . lawn . sky . clouds . water . lake . hill . tree . bush . plant . flower . "
+            "fence . wall . building . window . chair . table . sofa . couch . furniture . "
+            "bed . desk . person . dog . car . umbrella . pot . cushion . pillow . lamp . "
+            "railing . stairs . outdoor furniture . green chair . adirondack chair . ottoman"
+        ),
+    )
+    env_masks = _run_grounded_sam(client, tmp_path, config, env_prompt, "", 0)
+    if not env_masks:
+        return np.zeros(shape, dtype=np.uint8), False
+    return _union_masks(env_masks, shape), True
+
+
+def _detect_objects_extra(
+    client: Any,
+    tmp_path: str,
+    config: dict,
+    shape: tuple[int, int],
+) -> tuple[np.ndarray, bool]:
+    obj_prompt = config.get(
+        "objects_subtraction_prompt",
+        "sofa . couch . coffee table . chair . table . outdoor furniture . ottoman . cushion . furniture",
+    )
+    obj_masks = _run_grounded_sam(client, tmp_path, config, obj_prompt, "", 0)
+    if not obj_masks:
+        return np.zeros(shape, dtype=np.uint8), False
+    return _union_masks(obj_masks, shape), True
+
+
+def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: dict, token: str) -> SegmentationResult:
+    empty_env = np.zeros(img_bgr.shape[:2], dtype=np.uint8)
+
     if not token:
-        return heuristic_floor_mask(img_bgr), "fallback: falta REPLICATE_API_TOKEN en .env"
+        floor = heuristic_floor_mask(img_bgr)
+        return SegmentationResult(
+            floor_mask=floor,
+            environment_mask=empty_env,
+            raw_floor_mask=floor,
+            message="fallback: falta REPLICATE_API_TOKEN en .env",
+        )
 
     tmp_path = None
     try:
@@ -127,46 +181,83 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
             tmp_path = tmp.name
 
         client = replicate.Client(api_token=token)
+        shape = img_bgr.shape[:2]
+        steps: list[str] = []
+
+        environment_mask = empty_env
+        if config.get("enable_environment_layer", True):
+            environment_mask, env_ok = _detect_environment(client, tmp_path, config, shape)
+            if env_ok:
+                steps.append("entorno detectado")
+
         floor_prompt = config.get(
             "floor_text_prompt",
             "floor . patio . stone floor . tile floor . wooden floor . ground",
         )
         negative_prompt = config.get(
             "negative_mask_prompt",
-            "sofa . couch . chair . table . furniture . bed . desk . person . wall . plant",
+            "sofa . couch . chair . table . furniture . bed . desk . person . wall . grass . bush",
         )
         floor_adj = int(config.get("mask_adjustment_factor", 6))
 
         floor_masks = _run_grounded_sam(client, tmp_path, config, floor_prompt, negative_prompt, floor_adj)
         if not floor_masks:
-            return heuristic_floor_mask(img_bgr), "fallback: Replicate no devolvio mascaras de piso"
-
-        best = _pick_best_mask(floor_masks, img_bgr.shape)
-        if best is None:
-            return heuristic_floor_mask(img_bgr), "fallback: ninguna mascara valida para piso"
-
-        subtracted = False
-        if config.get("enable_object_subtraction", True):
-            obj_prompt = config.get(
-                "objects_subtraction_prompt",
-                "sofa . couch . coffee table . chair . table . outdoor furniture . ottoman . cushion . furniture",
+            floor = heuristic_floor_mask(img_bgr)
+            return SegmentationResult(
+                floor_mask=floor,
+                environment_mask=environment_mask,
+                raw_floor_mask=floor,
+                message="fallback: Replicate no devolvio mascaras de piso",
             )
-            obj_masks = _run_grounded_sam(client, tmp_path, config, obj_prompt, "", 0)
-            if obj_masks:
-                obj_union = _union_masks(obj_masks, img_bgr.shape[:2])
-                best = _subtract_object_mask(best, obj_union)
-                subtracted = True
 
-        processed = postprocess_floor_mask(best, img_bgr.shape[:2])
+        raw_floor = _pick_best_mask(floor_masks, img_bgr.shape)
+        if raw_floor is None:
+            floor = heuristic_floor_mask(img_bgr)
+            return SegmentationResult(
+                floor_mask=floor,
+                environment_mask=environment_mask,
+                raw_floor_mask=floor,
+                message="fallback: ninguna mascara valida para piso",
+            )
+
+        floor = raw_floor.copy()
+        if (environment_mask > 127).any():
+            floor = _subtract_masks(floor, environment_mask, dilate_iters=3)
+            steps.append("restado entorno")
+
+        use_objects = config.get("enable_object_subtraction", False)
+        if use_objects and not config.get("enable_environment_layer", True):
+            obj_mask, obj_ok = _detect_objects_extra(client, tmp_path, config, shape)
+            if obj_ok:
+                environment_mask = np.maximum(environment_mask, obj_mask)
+                floor = _subtract_masks(floor, obj_mask, dilate_iters=2)
+                steps.append("restado muebles")
+
+        processed = postprocess_floor_mask(floor, shape)
         if float((processed > 30).mean()) < 0.03:
-            return heuristic_floor_mask(img_bgr), "fallback: mascara IA demasiado pequena"
+            floor_h = heuristic_floor_mask(img_bgr)
+            return SegmentationResult(
+                floor_mask=floor_h,
+                environment_mask=environment_mask,
+                raw_floor_mask=raw_floor,
+                message="fallback: mascara IA demasiado pequena tras excluir entorno",
+            )
 
-        msg = "ok: segmentacion IA (Grounded SAM)"
-        if subtracted:
-            msg += " + exclusion de muebles"
-        return processed, msg
+        msg = "ok: piso + capa entorno (" + ", ".join(steps) + ")" if steps else "ok: segmentacion IA (Grounded SAM)"
+        return SegmentationResult(
+            floor_mask=processed,
+            environment_mask=environment_mask,
+            raw_floor_mask=postprocess_floor_mask(raw_floor, shape),
+            message=msg,
+        )
     except Exception as exc:  # noqa: BLE001
-        return heuristic_floor_mask(img_bgr), f"fallback: error Replicate ({exc})"
+        floor = heuristic_floor_mask(img_bgr)
+        return SegmentationResult(
+            floor_mask=floor,
+            environment_mask=empty_env,
+            raw_floor_mask=floor,
+            message=f"fallback: error Replicate ({exc})",
+        )
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
