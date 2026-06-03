@@ -13,8 +13,8 @@ services:
       DATA_DIR: /app/data
     volumes:
       - ./data:/app/data
-    expose:
-      - "8000"
+    ports:
+      - "${API_PORT:-8001}:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
