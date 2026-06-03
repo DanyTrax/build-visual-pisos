@@ -72,7 +72,9 @@ class UpdateAiConfigRequest(BaseModel):
     negative_mask_prompt: str = ""
     objects_subtraction_prompt: str = ""
     environment_prompt: str = ""
+    furniture_subtraction_prompt: str = ""
     enable_environment_layer: bool = True
+    enable_furniture_subtraction: bool = True
     enable_object_subtraction: bool = False
     detection_threshold: float = Field(ge=0, le=1)
     box_threshold: float = Field(ge=0, le=1)

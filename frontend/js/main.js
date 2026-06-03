@@ -17,9 +17,9 @@ const ui = {
 };
 
 const TAB_LEGENDS = {
-  env: "Rojo: todo lo detectado como NO piso (césped, cielo, muebles, personas…).",
-  raw: "Cyan: piso detectado por IA antes de quitar el entorno.",
-  floor: "Verde: máscara final solo piso — usa esta para elegir material.",
+  env: "Rojo: capa IA de lo que NO es piso (cielo, césped, muebles…). No es el color real de la foto.",
+  raw: "Cyan: capa IA del piso antes de quitar muebles/entorno.",
+  floor: "Verde: capa IA final solo piso. Si ves sillones verdes aquí, la máscara aún los incluye — revisa pestaña Entorno.",
 };
 
 function setActiveTab(tab) {
@@ -68,7 +68,7 @@ async function analyze() {
     alert("Selecciona o toma una foto primero.");
     return;
   }
-  ui.statusText.textContent = "Capa 1: entorno… Capa 2: piso… (puede tardar ~1 min)";
+  ui.statusText.textContent = "IA: entorno + muebles + piso… (~1–2 min). El verde es solo la capa de vista previa.";
   ui.previewTabs.classList.add("hidden");
   const fd = new FormData();
   fd.append("image", file);

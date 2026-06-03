@@ -82,6 +82,36 @@ def postprocess_floor_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarr
     return mask
 
 
+def refine_floor_remove_foreground_objects(img_bgr: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Quita de la mascara cojines/muebles por color (beige vs piedra del piso)."""
+    h, w = mask.shape[:2]
+    active = mask > 127
+    if int(active.sum()) < 200:
+        return mask
+
+    y_sample = int(h * 0.68)
+    sample_mask = active[y_sample:, :]
+    pixels = img_bgr[y_sample:, :][sample_mask]
+    if len(pixels) < 80:
+        return mask
+
+    lab_img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    floor_lab = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_BGR2LAB).astype(np.float32).reshape(-1, 3)
+    median = np.median(floor_lab, axis=0)
+    diff = np.linalg.norm(lab_img - median, axis=2)
+
+    y_idx = np.arange(h, dtype=np.float32)[:, None]
+    peel_zone = y_idx < (h * 0.84)
+    threshold = float(np.clip(np.percentile(diff[active], 55) + 12, 16, 32))
+    peel = active & peel_zone & (diff > threshold)
+
+    cleaned = mask.copy()
+    cleaned[peel] = 0
+    kernel = np.ones((9, 9), np.uint8)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=1)
+    return cleaned
+
+
 def make_tiled_texture(texture_bgr: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
     h, w = target_shape
     tex_h, tex_w = texture_bgr.shape[:2]

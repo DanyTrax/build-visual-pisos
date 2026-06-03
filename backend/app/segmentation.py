@@ -8,7 +8,11 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from .image_ops import heuristic_floor_mask, postprocess_floor_mask
+from .image_ops import (
+    heuristic_floor_mask,
+    postprocess_floor_mask,
+    refine_floor_remove_foreground_objects,
+)
 
 
 @dataclass
@@ -64,12 +68,18 @@ def _score_floor_mask(mask: np.ndarray, height: int) -> float:
     return (mean_y * 1.5) + (bottom_ratio * 2.0) - (top_ratio * 3.0)
 
 
-def _pick_best_mask(masks: list[np.ndarray], img_shape: tuple[int, int, int]) -> np.ndarray | None:
+def _pick_best_mask(
+    masks: list[np.ndarray],
+    img_shape: tuple[int, int, int],
+    exclude_mask: np.ndarray | None = None,
+) -> np.ndarray | None:
     h = img_shape[0]
     best_score = -1.0
     best_mask = None
     for mask in masks:
         mask = _resize_mask(mask, img_shape[:2])
+        if exclude_mask is not None and (exclude_mask > 127).any():
+            mask = _subtract_masks(mask, exclude_mask, dilate_iters=2, kernel_size=11)
         score = _score_floor_mask(mask, h)
         if score > best_score:
             best_score = score
@@ -86,8 +96,13 @@ def _union_masks(masks: list[np.ndarray], shape: tuple[int, int]) -> np.ndarray:
     return union
 
 
-def _subtract_masks(base_mask: np.ndarray, remove_mask: np.ndarray, dilate_iters: int = 2) -> np.ndarray:
-    kernel = np.ones((11, 11), np.uint8)
+def _subtract_masks(
+    base_mask: np.ndarray,
+    remove_mask: np.ndarray,
+    dilate_iters: int = 2,
+    kernel_size: int = 11,
+) -> np.ndarray:
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
     expanded = cv2.dilate(remove_mask, kernel, iterations=dilate_iters)
     cleaned = base_mask.copy()
     cleaned[expanded > 127] = 0
@@ -132,9 +147,7 @@ def _detect_environment(
         "environment_prompt",
         (
             "grass . lawn . sky . clouds . water . lake . hill . tree . bush . plant . flower . "
-            "fence . wall . building . window . chair . table . sofa . couch . furniture . "
-            "bed . desk . person . dog . car . umbrella . pot . cushion . pillow . lamp . "
-            "railing . stairs . outdoor furniture . green chair . adirondack chair . ottoman"
+            "fence . wall . building . window . person . dog . car . umbrella . pot . railing . stairs"
         ),
     )
     env_masks = _run_grounded_sam(client, tmp_path, config, env_prompt, "", 0)
@@ -143,20 +156,23 @@ def _detect_environment(
     return _union_masks(env_masks, shape), True
 
 
-def _detect_objects_extra(
+def _detect_furniture(
     client: Any,
     tmp_path: str,
     config: dict,
     shape: tuple[int, int],
 ) -> tuple[np.ndarray, bool]:
-    obj_prompt = config.get(
-        "objects_subtraction_prompt",
-        "sofa . couch . coffee table . chair . table . outdoor furniture . ottoman . cushion . furniture",
+    furn_prompt = config.get(
+        "furniture_subtraction_prompt",
+        (
+            "sofa . couch . loveseat . armchair . chair . seat . cushion . pillow . "
+            "coffee table . table . outdoor furniture . patio furniture . ottoman . furniture"
+        ),
     )
-    obj_masks = _run_grounded_sam(client, tmp_path, config, obj_prompt, "", 0)
-    if not obj_masks:
+    furn_masks = _run_grounded_sam(client, tmp_path, config, furn_prompt, "", 0)
+    if not furn_masks:
         return np.zeros(shape, dtype=np.uint8), False
-    return _union_masks(obj_masks, shape), True
+    return _union_masks(furn_masks, shape), True
 
 
 def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: dict, token: str) -> SegmentationResult:
@@ -185,10 +201,20 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
         steps: list[str] = []
 
         environment_mask = empty_env
+        furniture_mask = empty_env
+
         if config.get("enable_environment_layer", True):
             environment_mask, env_ok = _detect_environment(client, tmp_path, config, shape)
             if env_ok:
-                steps.append("entorno detectado")
+                steps.append("entorno")
+
+        if config.get("enable_furniture_subtraction", True):
+            furniture_mask, furn_ok = _detect_furniture(client, tmp_path, config, shape)
+            if furn_ok:
+                steps.append("muebles")
+            environment_mask = np.maximum(environment_mask, furniture_mask)
+
+        exclude_mask = environment_mask
 
         floor_prompt = config.get(
             "floor_text_prompt",
@@ -210,7 +236,7 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
                 message="fallback: Replicate no devolvio mascaras de piso",
             )
 
-        raw_floor = _pick_best_mask(floor_masks, img_bgr.shape)
+        raw_floor = _pick_best_mask(floor_masks, img_bgr.shape, exclude_mask=exclude_mask)
         if raw_floor is None:
             floor = heuristic_floor_mask(img_bgr)
             return SegmentationResult(
@@ -221,17 +247,16 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
             )
 
         floor = raw_floor.copy()
-        if (environment_mask > 127).any():
-            floor = _subtract_masks(floor, environment_mask, dilate_iters=3)
+        if (furniture_mask > 127).any():
+            floor = _subtract_masks(floor, furniture_mask, dilate_iters=5, kernel_size=17)
+            steps.append("restado muebles")
+        elif (environment_mask > 127).any():
+            floor = _subtract_masks(floor, environment_mask, dilate_iters=3, kernel_size=13)
             steps.append("restado entorno")
 
-        use_objects = config.get("enable_object_subtraction", False)
-        if use_objects and not config.get("enable_environment_layer", True):
-            obj_mask, obj_ok = _detect_objects_extra(client, tmp_path, config, shape)
-            if obj_ok:
-                environment_mask = np.maximum(environment_mask, obj_mask)
-                floor = _subtract_masks(floor, obj_mask, dilate_iters=2)
-                steps.append("restado muebles")
+        floor = refine_floor_remove_foreground_objects(img_bgr, floor)
+        if "muebles" in steps or "entorno" in steps:
+            steps.append("filtro color")
 
         processed = postprocess_floor_mask(floor, shape)
         if float((processed > 30).mean()) < 0.03:
@@ -240,10 +265,10 @@ def segment_floor_with_replicate(img_bytes: bytes, img_bgr: np.ndarray, config: 
                 floor_mask=floor_h,
                 environment_mask=environment_mask,
                 raw_floor_mask=raw_floor,
-                message="fallback: mascara IA demasiado pequena tras excluir entorno",
+                message="fallback: mascara IA demasiado pequena tras excluir muebles",
             )
 
-        msg = "ok: piso + capa entorno (" + ", ".join(steps) + ")" if steps else "ok: segmentacion IA (Grounded SAM)"
+        msg = "ok: " + " + ".join(steps) if steps else "ok: segmentacion IA (Grounded SAM)"
         return SegmentationResult(
             floor_mask=processed,
             environment_mask=environment_mask,

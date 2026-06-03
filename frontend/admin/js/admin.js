@@ -73,7 +73,7 @@ async function loadAiConfig() {
     "floor_text_prompt",
     "negative_mask_prompt",
     "environment_prompt",
-    "objects_subtraction_prompt",
+    "furniture_subtraction_prompt",
     "mask_adjustment_factor",
     "detection_threshold",
     "box_threshold",
@@ -87,8 +87,8 @@ async function loadAiConfig() {
   document.getElementById("ai_enable_fallback_heuristic").checked = !!cfg.enable_fallback_heuristic;
   const envLayer = document.getElementById("ai_enable_environment_layer");
   if (envLayer) envLayer.checked = cfg.enable_environment_layer !== false;
-  const objSub = document.getElementById("ai_enable_object_subtraction");
-  if (objSub) objSub.checked = !!cfg.enable_object_subtraction;
+  const furnSub = document.getElementById("ai_enable_furniture_subtraction");
+  if (furnSub) furnSub.checked = cfg.enable_furniture_subtraction !== false;
 }
 
 ui.loginForm.addEventListener("submit", async (e) => {
@@ -151,9 +151,9 @@ ui.aiForm.addEventListener("submit", async (e) => {
       floor_text_prompt: document.getElementById("ai_floor_text_prompt").value,
       negative_mask_prompt: document.getElementById("ai_negative_mask_prompt").value,
       environment_prompt: document.getElementById("ai_environment_prompt").value,
-      objects_subtraction_prompt: document.getElementById("ai_objects_subtraction_prompt").value,
+      furniture_subtraction_prompt: document.getElementById("ai_furniture_subtraction_prompt").value,
       enable_environment_layer: document.getElementById("ai_enable_environment_layer").checked,
-      enable_object_subtraction: document.getElementById("ai_enable_object_subtraction").checked,
+      enable_furniture_subtraction: document.getElementById("ai_enable_furniture_subtraction").checked,
       mask_adjustment_factor: Number(document.getElementById("ai_mask_adjustment_factor").value),
       detection_threshold: Number(document.getElementById("ai_detection_threshold").value),
       box_threshold: Number(document.getElementById("ai_box_threshold").value),
